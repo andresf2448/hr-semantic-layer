@@ -1,0 +1,37 @@
+module: attendance
+owner: equipo-asistencia
+entities:
+  attendance_records:
+    table: attendance
+    tenant_key: company_id
+    relationships:
+      - name: employee
+        type: many_to_one
+        entity: core.employees
+        foreign_key: employee_id
+        references: id
+
+    dimensions:
+      attendance_date:
+        column: date
+        type: time
+        granularities: [day, week, month, quarter, year]
+        label: "Fecha de asistencia"
+
+    filters:
+      present_only:
+        expression: "{{table}}.present = TRUE"
+
+    metrics:
+      total_attendance_days:
+        type: count
+        label: "Días registrados"
+      present_days:
+        type: count
+        filters: [present_only]
+        label: "Días presentes"
+      attendance_rate:
+        type: derived
+        formula: "present_days / total_attendance_days * 100"
+        unit: percent
+        label: "Tasa de asistencia"

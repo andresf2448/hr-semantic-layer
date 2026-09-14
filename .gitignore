@@ -1,0 +1,36 @@
+# Dependencias instaladas localmente
+/.bundle/
+/vendor/bundle/
+
+# Credenciales y configuración de entorno
+.env
+.env.*
+!.env.example
+
+# Logs y temporales
+*.log
+/log/
+/tmp/
+
+# Depuración
+.byebug_history
+.ruby-lsp/
+
+# Volcados y respaldos de base de datos
+*.dump
+*.sql.gz
+*.sqlite3
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Cobertura de tests
+/coverage/

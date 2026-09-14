@@ -1,0 +1,109 @@
+#!/usr/bin/env ruby
+# bin/ask
+#
+# End-to-end demo: a question in Spanish goes in, and the five stages of
+# the pipeline come out, including the exact SQL that produced each number.
+#
+#   bundle exec ruby bin/ask "¿cómo va el desempeño por área en 2025?"
+#   bundle exec ruby bin/ask --company 2 "tasa de completitud por departamento"
+#
+# Requires Ollama running locally. Verifying that the semantic layer works
+# does NOT depend on this: that is what the test suite is for
+# (bundle exec rspec), which runs with no external dependencies.
+
+require "json"
+require_relative "../db/connection"
+require_relative "../llm/adapter"
+
+# --company stands in for the authenticated session. In a real application
+# this would never be a flag or a request parameter: it would come from
+# Current.user.company_id.
+#
+# It is read out of ARGV BEFORE the question is assembled, so it never
+# reaches the model. That is deliberate: if the company travelled inside the
+# question text, the model would have to extract it, and isolation between
+# companies would depend on an LLM behaving well. It does not. The tenant
+# says WHO is asking; the question says WHAT they want to know.
+company_id = 1
+if (index = ARGV.index("--company"))
+  company_id = ARGV.delete_at(index + 1).to_i
+  ARGV.delete_at(index)
+end
+question = ARGV.join(" ").strip
+
+if question.empty?
+  warn "Usage: bundle exec ruby bin/ask [--company N] \"your question\""
+  exit 1
+end
+
+SEPARATOR = "─" * 78
+
+def section(number, title)
+  puts
+  puts SEPARATOR
+  puts "#{number}  #{title}"
+  puts SEPARATOR
+end
+
+layer = SemanticLayer::Layer.load(
+  definitions_path: File.expand_path("../definitions", __dir__),
+  connection: ActiveRecord::Base.connection
+)
+
+adapter = SemanticLayer::LLM::Adapter.new(layer: layer)
+tenant  = SemanticLayer::Tenancy::TenantContext.new(company_id: company_id)
+
+# The adapter raises when the model cannot produce a valid query in
+# MAX_ATTEMPTS. That is a deliberate outcome, not a crash: no SQL ran and no
+# number was returned. It is printed as such instead of as a stack trace.
+begin
+  answer = adapter.ask(question, tenant: tenant)
+rescue SemanticLayer::Error => e
+  section("(!)", "THE QUESTION COULD NOT BE TRANSLATED  ·  company #{company_id}")
+  puts question
+  puts
+  puts e.message
+  puts
+  puts "No SQL was executed and no data was returned. The layer rejects a"
+  puts "query it cannot validate instead of guessing at one."
+  exit 1
+end
+
+section("(1)", "QUESTION  ·  company #{company_id}  ·  model: #{answer.provider}")
+puts question
+
+section("(2)", "DECLARATIVE QUERY  (produced by the model; this is not SQL)")
+puts JSON.pretty_generate(answer.query)
+
+failed = answer.attempts.reject { |a| a[:error].nil? }
+unless failed.empty?
+  section("(2b)", "SELF-CORRECTION  ·  #{failed.size} rejected attempt(s)")
+  failed.each { |attempt| puts "Attempt #{attempt[:attempt]}: #{attempt[:error]}" }
+  puts
+  puts "The model received the error, which lists the valid options, and retried."
+end
+
+section("(3)", "GENERATED SQL  (written by the compiler, never by the model)")
+puts answer.result.meta[:sql]
+puts
+puts "BINDS: #{answer.result.meta[:binds].inspect}"
+puts "JOINs: #{answer.result.meta[:join_path].join(' → ')}"
+
+section("(4)", "DATA  ·  #{answer.result.meta[:row_count]} rows in #{answer.result.meta[:elapsed_ms]} ms")
+rows = answer.result.data
+if rows.empty?
+  puts "(no results)"
+else
+  columns = rows.first.keys
+  widths  = columns.map { |c| [c.length, *rows.map { |r| r[c].to_s.length }].max }
+
+  puts columns.each_with_index.map { |c, i| c.ljust(widths[i]) }.join("  ")
+  puts widths.map { |w| "-" * w }.join("  ")
+  rows.each do |row|
+    puts columns.each_with_index.map { |c, i| row[c].to_s.ljust(widths[i]) }.join("  ")
+  end
+end
+
+section("(5)", "NATURAL LANGUAGE ANSWER")
+puts answer.summary
+puts

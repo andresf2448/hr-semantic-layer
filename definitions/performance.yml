@@ -1,0 +1,46 @@
+module: performance
+owner: equipo-desempeno
+entities:
+  reviews:
+    table: performance_reviews
+    tenant_key: company_id
+    relationships:
+      - name: employee
+        type: many_to_one
+        entity: core.employees
+        foreign_key: employee_id
+        references: id
+
+    dimensions:
+      review_status:
+        column: status
+        type: string
+        label: "Estado de la evaluación"
+      review_period:
+        column: period
+        type: time
+        granularities: [quarter, month, year]
+        label: "Periodo evaluado"
+
+    filters:
+      completed:
+        expression: "{{table}}.status = 'completed'"
+
+    metrics:
+      total_reviews:
+        type: count
+        label: "Evaluaciones totales"
+      completed_reviews:
+        type: count
+        filters: [completed]
+        label: "Evaluaciones completadas"
+      avg_performance_score:
+        type: avg
+        column: score
+        filters: [completed]
+        label: "Score promedio de desempeño"
+      completion_rate:
+        type: derived
+        formula: "completed_reviews / total_reviews * 100"
+        unit: percent
+        label: "Tasa de completitud"

@@ -1,0 +1,34 @@
+module: core
+entities:
+  employees:
+    table: employees
+    tenant_key: company_id
+    relationships:
+      - name: department
+        type: many_to_one
+        entity: core.departments
+        foreign_key: department_id
+        references: id
+    dimensions:
+      employee_name:
+        column: name
+        type: string
+        label: "Nombre del empleado"
+      employee_active:
+        column: active
+        type: boolean
+        label: "Empleado activo"
+      hire_date:
+        column: hire_date
+        type: time
+        granularities: [month, quarter, year]
+        label: "Fecha de contratación"
+
+  departments:
+    table: departments
+    tenant_key: company_id
+    dimensions:
+      department:
+        column: name
+        type: string
+        label: "Departamento"
