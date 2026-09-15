@@ -89,6 +89,60 @@ RSpec.describe "Generated SQL correctness" do
     expect(result.meta[:sql]).to include("FILTER (WHERE")
   end
 
+  # R8: attendance/ was declared after performance/ and the engine was not
+  # touched. It is served through the same code path, with its own base table,
+  # its own JOIN path and its own derived metric.
+  it "serves a module declared later without any change to the engine" do
+    base = layer.run({ "metrics"    => ["present_days", "total_attendance_days"],
+                       "dimensions" => ["department"] }, tenant: tenant(1))
+    rate = layer.run({ "metrics"    => ["attendance_rate"],
+                       "dimensions" => ["department"] }, tenant: tenant(1))
+
+    expect(base.meta[:join_path])
+      .to eq(["attendance.attendance_records", "core.employees", "core.departments"])
+    expect(base.meta[:sql]).to include("FROM attendance attendance_records")
+    expect(base.data).not_to be_empty
+
+    # The derived metric of the new module is the ratio of its own base
+    # metrics, computed over aggregates exactly like performance's.
+    by_department = rate.data.to_h { |r| [r["department"], r["attendance_rate"].to_f] }
+
+    base.data.each do |row|
+      expected = row["present_days"].to_f / row["total_attendance_days"] * 100
+      expect(by_department[row["department"]]).to be_within(0.001).of(expected)
+    end
+  end
+
+  # R4: the engine offers five granularities, but each dimension only accepts
+  # the ones it declares. review_period declares quarter, month and year.
+  it "applies the requested granularity to the time dimension" do
+    by_quarter = layer.run({ "metrics"    => ["completed_reviews"],
+                             "dimensions" => [{ "name" => "review_period",
+                                                "granularity" => "quarter" }] },
+                           tenant: tenant(1))
+    by_year    = layer.run({ "metrics"    => ["completed_reviews"],
+                             "dimensions" => [{ "name" => "review_period",
+                                                "granularity" => "year" }] },
+                           tenant: tenant(1))
+
+    expect(by_quarter.meta[:sql]).to include("DATE_TRUNC('quarter'")
+    expect(by_year.meta[:sql]).to    include("DATE_TRUNC('year'")
+
+    # The same rows bucketed more coarsely: fewer groups, identical total.
+    expect(by_year.data.size).to be < by_quarter.data.size
+    expect(by_year.data.sum { |r| r["completed_reviews"] })
+      .to eq(by_quarter.data.sum { |r| r["completed_reviews"] })
+  end
+
+  it "rejects a granularity the dimension does not declare" do
+    expect {
+      layer.run({ "metrics"    => ["completed_reviews"],
+                  "dimensions" => [{ "name" => "review_period",
+                                     "granularity" => "week" }] },
+                tenant: tenant(1))
+    }.to raise_error(SemanticLayer::InvalidQueryError, /quarter, month, year/)
+  end
+
   it "parameterizes every user supplied value" do
     result = layer.run(DECLARATIVE_QUERY, tenant: tenant(1))
 

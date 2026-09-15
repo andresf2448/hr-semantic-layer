@@ -55,5 +55,4 @@ CREATE INDEX idx_reviews_company_id      ON performance_reviews(company_id);
 CREATE INDEX idx_reviews_employee_id     ON performance_reviews(employee_id);
 CREATE INDEX idx_reviews_period          ON performance_reviews(period);
 CREATE INDEX idx_attendance_company_id   ON attendance(company_id);
-CREATE INDEX idx_attendance_employee_id  ON attendance(employee_id);
 CREATE INDEX idx_attendance_date         ON attendance(date);
